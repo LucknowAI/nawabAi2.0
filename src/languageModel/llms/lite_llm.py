@@ -28,6 +28,45 @@ class LiteLLMClient:
         if self.api_key:
             os.environ["LITELLM_API_KEY"] = self.api_key
 
+    async def generate_response_using_functions(self, prompt: str, functions: List[Dict], system_prompt: str = None, **call_kwargs) -> Dict:
+        """
+        Generate a response from the model using function calling capabilities.
+        
+        Args:
+            prompt (str): The user's input prompt
+            functions (List[Dict]): List of function definitions for the model to use
+            system_prompt (str, optional): System message for context
+            **call_kwargs: Additional call-specific parameters (overrides init kwargs)
+        
+        Returns:
+            Dict: The parsed function call response
+        """
+        try:
+            # Prepare the messages
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            # Merge kwargs: call-specific kwargs override initialization kwargs
+            combined_kwargs = {**self.kwargs, **call_kwargs}
+            combined_kwargs['functions'] = functions
+
+            # Make the API call using LiteLLM
+            response = completion(
+                model=self.model_name,
+                messages=messages,
+                api_base=self.base_url if self.base_url else None,
+                **combined_kwargs
+            )
+
+            # Extract and return the function call response
+            return json.loads(response.choices[0].message.function_call.arguments)
+
+        except Exception as e:
+            print(f"Error generating response: {str(e)}")
+            return {"error": f"Error generating response: {str(e)}"}
+    
     async def generate_response(self, prompt: str, system_prompt: str = None, **call_kwargs) -> str:
         """
         Generate a response from the model based on a prompt.

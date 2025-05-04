@@ -1,9 +1,10 @@
 import requests
 import json
-
+import aiohttp
+from src.config.settings import Settings
 class APIHandler:
     BASE_URL = "https://google.serper.dev"
-    API_KEY = ""
+    API_KEY = Settings.SERPER_API_KEY
 
     def __init__(self):
         self.headers = {
@@ -11,40 +12,41 @@ class APIHandler:
             'Content-Type': 'application/json'
         }
 
-    def call_api(self, endpoint, payload):
+    async def call_api(self, endpoint, payload):
         url = f"{self.BASE_URL}/{endpoint}"
         try:
-            response = requests.post(url, headers=self.headers, json=payload)
-            response.raise_for_status()
-            return {"status": 1, "data": response.json()}
-        except requests.exceptions.RequestException as e:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=self.headers, json=payload) as response:
+                    response.raise_for_status()
+                    return {"status": 1, "data": await response.json()}
+        except aiohttp.ClientError as e:
             return {"status": 0, "error": str(e)}
 
-    def maps_api(self, keywords):
+    async def maps_api(self, keywords):
         payload = {
             "q": " ".join(keywords),
             "ll": "@26.8488213,80.8601114,12z"  # Default to Lucknow coordinates
         }
-        return self.call_api("maps", payload)
+        return await self.call_api("maps", payload)
 
-    def news_api(self, keywords):
+    async def news_api(self, keywords):
         payload = {
             "q": " ".join(keywords),
             "location": "Lucknow, Uttar Pradesh, India",
             "gl": "in",
             "tbs": "qdr:w"
         }
-        return self.call_api("news", payload)
+        return await self.call_api("news", payload)
 
-    def video_api(self, keywords):
+    async def video_api(self, keywords):
         payload = {
             "q": " ".join(keywords),
             "location": "Lucknow, Uttar Pradesh, India",
             "gl": "in"
         }
-        return self.call_api("videos", payload)
+        return await self.call_api("videos", payload)
 
-    def process_input(self, input_data):
+    async def process_input(self, input_data):
         if not isinstance(input_data, dict):
             return {"status": 0, "error": "Invalid input format. Expected a dictionary."}
 
@@ -62,11 +64,11 @@ class APIHandler:
                 continue
 
             if api_name == "google_maps_api":
-                results[api_name] = self.maps_api(keywords)
+                results[api_name] = await self.maps_api(keywords)
             elif api_name == "google_news_api":
-                results[api_name] = self.news_api(keywords)
+                results[api_name] = await self.news_api(keywords)
             elif api_name == "google_video_api":
-                results[api_name] = self.video_api(keywords)
+                results[api_name] = await self.video_api(keywords)
             else:
                 results[api_name] = {"status": 0, "error": f"Unknown API: {api_name}"}
 

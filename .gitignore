@@ -1,3 +1,7 @@
 .venv
 .env
-__pychache__
+__pycache__
+query_logs
+upai-projects-08b774ca67d6.json
+test.ipynb
+locustfile.py
