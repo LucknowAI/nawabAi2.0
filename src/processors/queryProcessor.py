@@ -22,16 +22,30 @@ class QueryProcessor:
             os.makedirs(self.log_folder)
 
     def extract_json_string(self, json_string):
-    # Remove the code block markers
-        json_string = json_string.strip("```json\n").strip("```")
-    
-    # Parse the JSON string
+    # Handle empty responses
+        if not json_string or json_string.isspace():
+            print(f"Warning: Empty response received from LLM")
+            return {"api_needed": 0, "response": "I'm sorry, I couldn't process your request. Please try again."}
+        
+        # Try to find JSON content within markdown code blocks
+        json_match = re.search(r'```(?:json)?\s*\n([\s\S]*?)\n```', json_string)
+        if json_match:
+            json_string = json_match.group(1).strip()
+        else:
+            # Remove the code block markers if they exist
+            json_string = json_string.strip("```json\n").strip("```").strip()
+        
+        # Parse the JSON string
         try:
             parsed_json = json.loads(json_string)
             return parsed_json
         except json.JSONDecodeError as e:
-            print(f"Error decoding JSON: {e}")
-            return json_string
+            print(f"Error decoding JSON: {e}, Raw response: {json_string[:500]}")
+            # Provide a fallback response
+            return {
+                "api_needed": 0,
+                "response": "I encountered an issue processing your request. Here's what I received: " + json_string[:500]
+            }
     
     async def process_query(self, query):
         log_data = {

@@ -1,7 +1,9 @@
 from litellm import completion, batch_completion
+from litellm.exceptions import APIError
 import os
 from typing import List, Dict, Any
 import json
+import tenacity
 
 class LiteLLMClient:
     """
@@ -66,7 +68,13 @@ class LiteLLMClient:
         except Exception as e:
             print(f"Error generating response: {str(e)}")
             return {"error": f"Error generating response: {str(e)}"}
-    
+        
+    @tenacity.retry(
+        wait=tenacity.wait_random_exponential(multiplier=1, min=60, max=5000),
+        stop=tenacity.stop_after_attempt(10),
+        retry=tenacity.retry_if_exception_type(APIError),
+        reraise=True
+    )
     async def generate_response(self, prompt: str, system_prompt: str = None, **call_kwargs) -> str:
         """
         Generate a response from the model based on a prompt.
