@@ -12,6 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    gcc \
+    libffi-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -30,5 +32,5 @@ RUN mkdir -p query_logs && chmod 777 query_logs
 # Expose port 8080
 EXPOSE 8080
 
-# Command to run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Start with Gunicorn using Uvicorn workers and auto-scaled worker count
+CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w $(nproc) -b 0.0.0.0:8080"]

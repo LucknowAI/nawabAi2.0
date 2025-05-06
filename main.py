@@ -9,6 +9,12 @@ from src.api.chatRouter import chat_router
 from src.api.healthRouter import health_router
 from src.middleware.rate_limiter import RateLimiter
 from src.config.settings import Settings
+import asyncio
+# import uvloop
+
+# # Use uvloop for better async performance on Linux
+# if sys.platform != 'win32':
+#     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 logging.basicConfig(
     level=getattr(logging, Settings.LOG_LEVEL),
