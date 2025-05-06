@@ -87,7 +87,8 @@ class QueryProcessor:
         else:
             # print("Under API Not Needed ", result)
             # If API is not needed, use the response directly
-            final_result = {"llm_response": result['response']}
+            # final_result = {"llm_response": result['response']}
+            final_result = result['response']
             log_data["stages"].append({"stage": "final_response", "result": final_result})
 
         # Save log data
