@@ -44,7 +44,7 @@ class QueryProcessor:
             # Provide a fallback response
             return {
                 "api_needed": 0,
-                "response": "I encountered an issue processing your request. Here's what I received: " + json_string[:500]
+                "response": "I encountered an issue processing your request. Here's what I received: " + json_string
             }
     
     async def process_query(self, query):
