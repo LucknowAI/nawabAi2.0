@@ -8,14 +8,14 @@ from src.tools.serper import APIHandler
 from src.languageModel.prompts.translation.translationPromptv1 import TRANSLATION_USER_PROMPT
 from src.languageModel.prompts.response.responsePromptv1 import RESPONSE_USER_PROMPT
 import re
-
+from src.config.settings import Settings
 class QueryProcessor:
     def __init__(self, log_folder="query_logs"):
         self.max_tokens = 16000  # Max tokens for API call
         self.input_token_limit = 16384
         self.temperature = 0.5
         self.top_p = 0.9
-        self.lite_llm_handler = LiteLLMClient(api_key=Settings.GEMINI_API_KEY, model_name="gemini-2.0-flash-lite")
+        self.lite_llm_handler = LiteLLMClient(api_key=Settings.GEMINI_API_KEY, model_name="gemini/gemini-2.0-flash-lite")
         self.api_handler = APIHandler()
         self.log_folder = log_folder
         if not os.path.exists(self.log_folder):
@@ -60,7 +60,10 @@ class QueryProcessor:
         
         # First stage: Translate and determine if API is needed
         result = await self.lite_llm_handler.generate_response(
-            combined_prompt 
+            combined_prompt ,
+            
+            vertex_project=Settings.VERTEX_PROJECT_ID,
+            vertex_location=Settings.VERTEX_PROJECT_LOCATION,
         )
         # print(result)
         

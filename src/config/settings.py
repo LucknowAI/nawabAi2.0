@@ -19,6 +19,8 @@ class Settings:
     MAX_WORKERS = int(os.getenv('MAX_WORKERS', 10))
     REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', 30))
     RATE_LIMIT = int(os.getenv('RATE_LIMIT', 100))
+    VERTEX_PROJECT_LOCATION = os.getenv('VERTEX_PROJECT_LOCATION', 'asia-south1')
+    VERTEX_PROJECT_ID = os.getenv('VERTEX_PROJECT_ID', 'upai-projects')
 
 
 settings = Settings()
