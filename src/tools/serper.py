@@ -1,7 +1,10 @@
 import requests
 import json
 import aiohttp
+import asyncio
+import tenacity
 from src.config.settings import Settings
+
 class APIHandler:
     BASE_URL = "https://google.serper.dev"
     API_KEY = Settings.SERPER_API_KEY
@@ -12,15 +15,31 @@ class APIHandler:
             'Content-Type': 'application/json'
         }
 
+    @tenacity.retry(
+        wait=tenacity.wait_random_exponential(multiplier=1, min=1, max=60), # Adjust min/max as needed
+        stop=tenacity.stop_after_attempt(5),  # Adjust attempts as needed
+        retry=tenacity.retry_if_exception_type((aiohttp.ClientError, asyncio.TimeoutError)),
+        reraise=True
+    )
     async def call_api(self, endpoint, payload):
         url = f"{self.BASE_URL}/{endpoint}"
         try:
-            async with aiohttp.ClientSession() as session:
+            # Configure timeout for the session
+            timeout = aiohttp.ClientTimeout(total=Settings.API_TIMEOUT)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post(url, headers=self.headers, json=payload) as response:
-                    response.raise_for_status()
+                    response.raise_for_status()  # Raises an exception for 4XX/5XX status codes
                     return {"status": 1, "data": await response.json()}
-        except aiohttp.ClientError as e:
-            return {"status": 0, "error": str(e)}
+        except aiohttp.ClientResponseError as e: # Specific exception for HTTP errors
+            # You could log e.status and e.message here
+            return {"status": 0, "error": f"API request failed with status {e.status}: {e.message}", "details": str(e)}
+        except asyncio.TimeoutError as e:
+            return {"status": 0, "error": f"API request timed out after {Settings.API_TIMEOUT} seconds.", "details": str(e)}
+        except aiohttp.ClientError as e: # Catch other client errors (e.g., connection issues)
+            return {"status": 0, "error": "API request failed due to a client error.", "details": str(e)}
+        except Exception as e: # Catch-all for any other unexpected errors during the API call
+            # It's good to log this e comprehensively
+            return {"status": 0, "error": "An unexpected error occurred during the API call.", "details": str(e)}
 
     async def maps_api(self, keywords):
         payload = {
@@ -55,22 +74,28 @@ class APIHandler:
             return {"status": 0, "error": "No 'response' key found in input data."}
 
         api_needed = input_data.get("api_needed", len(response))
+        tasks = []
         results = {}
 
         for api_name, keywords in response.items():
-            
             if not isinstance(keywords, list) or not keywords:
                 results[api_name] = {"status": 0, "error": "Keywords should be a non-empty list."}
                 continue
 
             if api_name == "google_maps_api":
-                results[api_name] = await self.maps_api(keywords)
+                tasks.append((api_name, self.maps_api(keywords)))
             elif api_name == "google_news_api":
-                results[api_name] = await self.news_api(keywords)
+                tasks.append((api_name, self.news_api(keywords)))
             elif api_name == "google_video_api":
-                results[api_name] = await self.video_api(keywords)
+                tasks.append((api_name, self.video_api(keywords)))
             else:
                 results[api_name] = {"status": 0, "error": f"Unknown API: {api_name}"}
+
+        # Execute all API calls in parallel
+        if tasks:
+            api_results = await asyncio.gather(*[task[1] for task in tasks])
+            for (api_name, _), result in zip(tasks, api_results):
+                results[api_name] = result
 
         return results if len(results) > 1 else next(iter(results.values()))
 

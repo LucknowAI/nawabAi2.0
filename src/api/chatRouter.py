@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Union, Dict, Any
 from fastapi import Depends, HTTPException, status
 from src.processors.queryProcessor import QueryProcessor
 
@@ -19,7 +19,7 @@ class ChatRequest(BaseModel):
         }
     
 class ChatResponse(BaseModel):
-    response: dict
+    response: Dict[str, Any]
     status: str = "success"
        
 chat_router = APIRouter(
@@ -62,6 +62,11 @@ async def chat_endpoint(
             )
             
         response = await processor.process_query(request.message)
+        
+        # Ensure response is a dictionary
+        if isinstance(response, str):
+            response = {"llm_response": response}
+            
         return ChatResponse(
             response=response,
             status="success"
