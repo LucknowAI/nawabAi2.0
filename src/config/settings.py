@@ -4,12 +4,23 @@ import os
 load_dotenv()
 
 class Settings:
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-    # JWT_SECRET = os.getenv('JWT_SECRET')  # Replace with your actual secret
-    # JWT_ALGORITHM = os.getenv('JWT_ALGORITHM')
-    # DATABASE_URL = os.getenv('DATABASE_URL')  
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')    
+    JWT_SECRET = os.getenv('JWT_SECRET')  # Replace with your actual secret
+    JWT_ALGORITHM = os.getenv('JWT_ALGORITHM')
+    MONGO_DATABASE_URL = os.getenv('MONGO_DB_CONNECTION_STRING')  
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     SERPER_API_KEY = os.getenv('SERPER_API_KEY')
+
+
+    # Rate Limiting
+    RATE_LIMIT = int(os.getenv('RATE_LIMIT', 60))  # requests per minute
+    MAX_WORKERS = int(os.getenv('MAX_WORKERS', 100))  # concurrent workers
+    BAN_THRESHOLD = int(os.getenv('BAN_THRESHOLD', 5))  # violations before ban
+    BAN_DURATION = int(os.getenv('BAN_DURATION', 3600))  # ban duration in seconds
+
+# JWT Settings
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 30))
+    REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv('REFRESH_TOKEN_EXPIRE_DAYS', 30))
 
     #APP Configuration
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
