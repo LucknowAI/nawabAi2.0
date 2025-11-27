@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import Optional, Union, Dict, Any
 from fastapi import Depends, HTTPException, status
 from src.processors.queryProcessor import QueryProcessor
+from src.tools.Whsiper import whisper_service
 
 processor = QueryProcessor()
 
@@ -17,6 +18,16 @@ class ChatRequest(BaseModel):
                 "user_id": "12345"
             }
         }
+
+class SpeechToTextRequest(BaseModel):
+    transcribed_text: str
+    user_id: Optional[str] = None
+    auto_process: bool = Field(False, description="Whether to automatically process the transcribed text")
+
+class SpeechToTextResponse(BaseModel):
+    transcribed_text: str
+    status: str = "success"
+    chat_response: Optional[Dict[str, Any]] = None
     
 class ChatResponse(BaseModel):
     response: Dict[str, Any]
@@ -75,4 +86,45 @@ async def chat_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An error occurred while processing the request: {str(e)}"
+        )
+
+@chat_router.post("/speech-to-text", response_model=SpeechToTextResponse)
+async def speech_to_text_endpoint(
+    audio_file: UploadFile = File(..., description="Audio file to transcribe"),
+    language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'hi')"),
+    processor: QueryProcessor = Depends(lambda: QueryProcessor()),
+):
+
+    try:
+        # Transcribe audio to text
+        transcribed_text = await whisper_service.transcribe_audio(
+            audio_file=audio_file,
+            language=language
+        )
+        
+        if not transcribed_text:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not transcribe audio. Please ensure the audio is clear and try again."
+            )
+        
+        # Process the transcribed text to get chat response
+        chat_response = await processor.process_query(transcribed_text)
+        if isinstance(chat_response, str):
+            chat_response = {"llm_response": chat_response}
+
+        # Return SpeechToTextResponse instead of ChatResponse
+        return SpeechToTextResponse(
+            transcribed_text=transcribed_text,
+            status="success",
+            chat_response=chat_response
+        )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors, etc.)
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred during speech-to-text conversion: {str(e)}"
         )
