@@ -4,6 +4,9 @@ from typing import Optional, Union, Dict, Any
 from fastapi import Depends, HTTPException, status
 from src.processors.queryProcessor import QueryProcessor
 from src.tools.Whsiper import whisper_service
+from src.models.chatModels import ChatSession, ChatMessage
+from datetime import datetime
+import uuid
 
 processor = QueryProcessor()
 
@@ -77,6 +80,50 @@ async def chat_endpoint(
         # Ensure response is a dictionary
         if isinstance(response, str):
             response = {"llm_response": response}
+        
+        # Save chat history to MongoDB
+        try:
+            # Generate unique IDs
+            session_id = str(uuid.uuid4())
+            user_message_id = str(uuid.uuid4())
+            assistant_message_id = str(uuid.uuid4())
+            current_time = datetime.utcnow()
+            
+            # Create chat messages
+            user_message = ChatMessage(
+                message_id=user_message_id,
+                role="user",
+                content=request.message,
+                timestamp=current_time,
+                metadata={"user_id": request.user_id} if request.user_id else {}
+            )
+            
+            assistant_message = ChatMessage(
+                message_id=assistant_message_id,
+                role="assistant",
+                content=response.get("llm_response", str(response)),
+                timestamp=datetime.utcnow(),
+                metadata={}
+            )
+            
+            # Create or update chat session
+            chat_session = ChatSession(
+                session_id=session_id,
+                user_id=request.user_id or "anonymous",
+                created_at=current_time,
+                updated_at=datetime.utcnow(),
+                status="active",
+                message_count=2,
+                messages=[user_message, assistant_message],
+                metadata={}
+            )
+            
+            # Save to MongoDB
+            await chat_session.insert()
+            
+        except Exception as db_error:
+            # Log the error but don't fail the request
+            print(f"Failed to save chat to database: {str(db_error)}")
             
         return ChatResponse(
             response=response,

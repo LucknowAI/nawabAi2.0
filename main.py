@@ -12,6 +12,7 @@ from src.middleware.rate_limiter import RateLimiter
 from src.config.settings import Settings
 from src.models.userModels import User
 from src.models.authModels import OTPinDB, RefreshTokenInDB
+from src.models.chatModels import ChatSession
 
 
 import asyncio
@@ -37,7 +38,7 @@ async def lifespan(app: FastAPI):
     # Startup: Initialize resources
     logger.info("Starting Nawab AI 2.0")
     client = AsyncIOMotorClient(Settings.MONGO_DATABASE_URL)
-    await init_beanie(database=client.myDatabase, document_models=[User, OTPinDB, RefreshTokenInDB])
+    await init_beanie(database=client.myDatabase, document_models=[User, OTPinDB, RefreshTokenInDB, ChatSession])
     logger.info("Connected to MongoDB")
     # Add any startup code here (database connections, etc.)
     yield
@@ -97,7 +98,7 @@ async def add_process_time_header(request: Request, call_next):
 # Include routers
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
-app.include_router(auth_router, prefix="/api/v1")
+# app.include_router(auth_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
