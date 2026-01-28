@@ -53,7 +53,10 @@ app = FastAPI(
     title="Nawab Chat API",
     description="AI assistant specialized in Lucknow-related information",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if Settings.ENVIRONMENT == "development" else None,
+    redoc_url="/redoc" if Settings.ENVIRONMENT == "development" else None,
+    openapi_url="/openapi.json" if Settings.ENVIRONMENT == "development" else None
 )
 
 

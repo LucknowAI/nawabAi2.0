@@ -24,7 +24,7 @@ class Settings:
 
     #APP Configuration
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-    ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
+    ENVIRONMENT = os.getenv('ENVIRONMENT', 'production')  # development, staging, production
     
     # Performance Settings
     MAX_WORKERS = int(os.getenv('MAX_WORKERS', 10))
