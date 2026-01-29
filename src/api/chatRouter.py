@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Union, Dict, Any
 from fastapi import Depends, HTTPException, status
 from src.processors.queryProcessor import QueryProcessor
-from src.tools.Whsiper import whisper_service
+# from src.tools.Whsiper import whisper_service
 from src.models.chatModels import ChatSession, ChatMessage
 from datetime import datetime
 import uuid
@@ -135,43 +135,43 @@ async def chat_endpoint(
             detail=f"An error occurred while processing the request: {str(e)}"
         )
 
-@chat_router.post("/speech-to-text", response_model=SpeechToTextResponse)
-async def speech_to_text_endpoint(
-    audio_file: UploadFile = File(..., description="Audio file to transcribe"),
-    language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'hi')"),
-    processor: QueryProcessor = Depends(lambda: QueryProcessor()),
-):
+# @chat_router.post("/speech-to-text", response_model=SpeechToTextResponse)
+# async def speech_to_text_endpoint(
+#     audio_file: UploadFile = File(..., description="Audio file to transcribe"),
+#     language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'hi')"),
+#     processor: QueryProcessor = Depends(lambda: QueryProcessor()),
+# ):
 
-    try:
-        # Transcribe audio to text
-        transcribed_text = await whisper_service.transcribe_audio(
-            audio_file=audio_file,
-            language=language
-        )
+#     try:
+#         # Transcribe audio to text
+#         transcribed_text = await whisper_service.transcribe_audio(
+#             audio_file=audio_file,
+#             language=language
+#         )
         
-        if not transcribed_text:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not transcribe audio. Please ensure the audio is clear and try again."
-            )
+#         if not transcribed_text:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="Could not transcribe audio. Please ensure the audio is clear and try again."
+#             )
         
-        # Process the transcribed text to get chat response
-        chat_response = await processor.process_query(transcribed_text)
-        if isinstance(chat_response, str):
-            chat_response = {"llm_response": chat_response}
+#         # Process the transcribed text to get chat response
+#         chat_response = await processor.process_query(transcribed_text)
+#         if isinstance(chat_response, str):
+#             chat_response = {"llm_response": chat_response}
 
-        # Return SpeechToTextResponse instead of ChatResponse
-        return SpeechToTextResponse(
-            transcribed_text=transcribed_text,
-            status="success",
-            chat_response=chat_response
-        )
+#         # Return SpeechToTextResponse instead of ChatResponse
+#         return SpeechToTextResponse(
+#             transcribed_text=transcribed_text,
+#             status="success",
+#             chat_response=chat_response
+#         )
         
-    except HTTPException:
-        # Re-raise HTTP exceptions (validation errors, etc.)
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred during speech-to-text conversion: {str(e)}"
-        )
+#     except HTTPException:
+#         # Re-raise HTTP exceptions (validation errors, etc.)
+#         raise
+#     except Exception as e:
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"An error occurred during speech-to-text conversion: {str(e)}"
+#         )
