@@ -33,4 +33,4 @@ RUN mkdir -p query_logs && chmod 777 query_logs
 EXPOSE 8080
 
 # Start with Gunicorn using Uvicorn workers and auto-scaled worker count
-CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w $(nproc) -b 0.0.0.0:8080"]
+CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w 1 -b 0.0.0.0:$PORT"]

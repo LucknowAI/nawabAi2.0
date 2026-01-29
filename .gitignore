@@ -1,8 +1,34 @@
-.venv
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment files
 .env
-__pycache__
-query_logs
-upai-projects-08b774ca67d6.json
+.env.local
+
+# GCP Service Account Keys (CRITICAL - NEVER COMMIT THESE!)
+*.json
+!package.json
+
+# Query logs and data
+query_logs/
+
+# Notebooks
 test.ipynb
+notebooks/*.ipynb
+
+# Testing and dev files
 locustfile.py
 sample.md
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log

@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Environment files
+.env
+.env.sample
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Notebooks
+notebooks/
+*.ipynb
+
+# Logs and data
+query_logs/
+*.log
+
+# GCP credentials (IMPORTANT: Never include in Docker image)
+*.json
+!package.json
+
+# Other
+locustfile.py
+sample.md
+CODEBASE_EVALUATION.md
