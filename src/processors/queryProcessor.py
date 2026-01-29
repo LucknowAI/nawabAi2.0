@@ -245,9 +245,9 @@ class QueryProcessor:
                 
                 final_result = await self.lite_llm_handler.generate_response(
                     combined_final_prompt,
-                    temperature=0.7,
+                    temperature=0.1,
                     top_p=0.95,
-                    max_tokens=1000
+                    max_tokens=5000
                 )
                 if not final_result:
                     raise ValueError("Empty response from final LLM call")
