@@ -60,13 +60,15 @@ app = FastAPI(
 )
 
 
-
+# CORS Configuration - Only allow specific frontend origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=[
+        "https://nawabaifrontend-506068601490.us-central1.run.app"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["POST", "GET"],  # POST for API calls, GET for health checks
+    allow_headers=["*"],
 )
 
 
