@@ -73,6 +73,49 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def strict_origin_validation(request: Request, call_next):
+    """Strict validation - only allow requests from authorized frontend"""
+    
+    # Allowed frontend origin
+    allowed_origin = "https://nawabaifrontend-506068601490.us-central1.run.app"
+    
+    # Paths that are exempt from origin checking (for Cloud Run health checks)
+    exempt_paths = {"/", "/_ah/health"}
+    
+    # Check if this is an exempt path (health checks)
+    if request.url.path in exempt_paths:
+        response = await call_next(request)
+        return response
+    
+    # Get the origin or referer from request headers
+    origin = request.headers.get("origin")
+    referer = request.headers.get("referer")
+    
+    # Validate origin
+    is_valid_origin = False
+    
+    if origin and origin == allowed_origin:
+        is_valid_origin = True
+    elif referer and referer.startswith(allowed_origin):
+        is_valid_origin = True
+    
+    # Block if not from allowed origin
+    if not is_valid_origin:
+        logger.warning(
+            f"Blocked unauthorized access from origin: {origin or 'None'}, "
+            f"referer: {referer or 'None'}, IP: {request.client.host}"
+        )
+        return Response(
+            content="Access denied. Requests must originate from authorized frontend application.",
+            status_code=403
+        )
+    
+    # If valid, continue processing
+    response = await call_next(request)
+    return response
+
+
+@app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
     
