@@ -10,6 +10,8 @@ class Settings:
     MONGO_DATABASE_URL = os.getenv('MONGO_DB_CONNECTION_STRING')  
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     SERPER_API_KEY = os.getenv('SERPER_API_KEY')
+    GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'google-gla:gemini-3-flash-preview')
+    OPENAI_MODEL_NAME = os.getenv('OPENAI_MODEL_NAME', 'openai:gpt-5.2')
 
 
     # Rate Limiting

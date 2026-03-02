@@ -8,12 +8,15 @@ from src.tools.serper import APIHandler
 # Ensure the GEMINI_API_KEY env var is set for pydantic-ai's Google provider
 if Settings.GEMINI_API_KEY:
     os.environ.setdefault("GEMINI_API_KEY", Settings.GEMINI_API_KEY)
+    model_name = Settings.GEMINI_MODEL_NAME or "google-gla:gemini-3-flash-preview"
+else:
+    model_name = Settings.OPENAI_MODEL_NAME or "openai:gpt-5.2"        
 
 _serper = APIHandler()
 
 # Shared agent instance used by the AG-UI streaming endpoint
 nawab_agent = Agent(
-    "openai:gpt-5.2",
+    model_name,
     system_prompt=prompt,
     deps_type=StateDeps[dict],
 )
