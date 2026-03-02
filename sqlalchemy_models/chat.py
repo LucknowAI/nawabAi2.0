@@ -15,6 +15,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -71,6 +72,14 @@ class ConversationModel(Base):
         order_by="ChatMessageModel.timestamp",
     )
 
+    # one conversation → many AG-UI events (event-sourcing log)
+    ag_ui_events = relationship(
+        "AgUiEventModel",
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="AgUiEventModel.sequence",
+    )
+
     # many conversations → one user
     user = relationship("UserModel", back_populates="conversations")
 
@@ -120,5 +129,59 @@ class ChatMessageModel(Base):
         return (
             f"<ChatMessageModel id={self.id} message_id={self.message_id!r}"
             f" role={self.role!r} conversation_id={self.conversation_id!r}>"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AgUiEvent  ── append-only event-sourcing log for AG-UI streams
+# ---------------------------------------------------------------------------
+
+class AgUiEventModel(Base):
+    """
+    Stores every raw AG-UI event emitted during a conversation run.
+
+    Columns
+    -------
+    conversation_id  FK → conversations.id
+    sequence         0-based monotone counter within one conversation
+    event            Full AG-UI event serialised as JSONB
+
+    Design notes
+    ------------
+    * Append-only – events are never updated or deleted in normal flow.
+    * (conversation_id, sequence) is UNIQUE so re-running a stopped stream
+      cannot create duplicate rows.
+    * Replaying these rows in sequence order recreates the exact UI state
+      via CopilotKit's runtime.replayEvents().
+    """
+
+    __tablename__ = "ag_ui_events"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "sequence", name="uq_ag_ui_events_conv_seq"),
+    )
+
+    id = column(BigInteger, primary_key=True, autoincrement=True)
+
+    conversation_id = column(
+        BigInteger,
+        ForeignKey("conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Monotone counter scoped to the conversation
+    sequence = column(Integer, nullable=False)
+
+    # Full AG-UI event dict (e.g. {"type":"TEXT_MESSAGE_CONTENT","delta":"Hi"})
+    event = column(JSONB, nullable=False)
+
+    # many events → one conversation
+    conversation = relationship("ConversationModel", back_populates="ag_ui_events")
+
+    def __repr__(self):
+        event_type = (self.event or {}).get("type", "?")
+        return (
+            f"<AgUiEventModel id={self.id} conversation_id={self.conversation_id}"
+            f" seq={self.sequence} type={event_type!r}>"
         )
 

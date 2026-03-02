@@ -34,7 +34,7 @@ if config.config_file_name is not None:
 
 # Import all models so Alembic's autogenerate can detect them.
 from sqlalchemy_models import Base  # noqa: E402 – import after sys.path is set
-from sqlalchemy_models import ConversationModel, ChatMessageModel  # noqa: F401  – ensure tables are registered
+from sqlalchemy_models import ConversationModel, ChatMessageModel, AgUiEventModel  # noqa: F401  – ensure tables are registered
 
 target_metadata = Base.metadata
 
