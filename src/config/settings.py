@@ -66,5 +66,18 @@ class Settings:
         if o.strip()
     ]
 
+    # Cookie security — True in production (HTTPS), False in local dev
+    # Override via COOKIE_SECURE=true/false in .env
+    @property
+    def COOKIE_SECURE(self) -> bool:
+        override = os.getenv('COOKIE_SECURE')
+        if override is not None:
+            return override.lower() == 'true'
+        return self.ENVIRONMENT != 'development'
+
+    # SameSite=none required when frontend and backend are on different domains.
+    # Must be paired with secure=True or browsers will reject the cookie.
+    COOKIE_SAMESITE: str = os.getenv('COOKIE_SAMESITE', 'none')
+
 
 settings = Settings()

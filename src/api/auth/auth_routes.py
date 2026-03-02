@@ -139,12 +139,16 @@ async def google_login(body: GoogleLoginRequest, response: Response):
     )
 
     # 4. Set secure cookie
+    # secure=True  → only sent over HTTPS (required on Cloud Run)
+    # samesite='none' → required when frontend and backend are on different
+    #   domains; browsers silently drop samesite='none' without secure=True.
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
-        secure=False,       # set True in production (HTTPS only)
-        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=7 * 24 * 60 * 60,  # 7 days, matches token expiry
     )
 
     return AuthResponse(
@@ -166,8 +170,8 @@ async def logout(response: Response):
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        samesite="lax",
-        secure=False,   # match the secure flag used when setting the cookie
+        samesite=settings.COOKIE_SAMESITE,
+        secure=settings.COOKIE_SECURE,
     )
     return {"message": "Logged out successfully"}
 
