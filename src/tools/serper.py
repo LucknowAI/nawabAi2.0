@@ -7,11 +7,16 @@ from src.config.settings import Settings
 
 class APIHandler:
     BASE_URL = "https://google.serper.dev"
-    API_KEY = Settings.SERPER_API_KEY
 
     def __init__(self):
-        self.headers = {
-            'X-API-KEY': self.API_KEY,
+        pass  # Key is read fresh on every call to avoid stale init-time values
+
+    def _get_headers(self) -> dict:
+        api_key = Settings.SERPER_API_KEY
+        if not api_key:
+            raise ValueError("SERPER_API_KEY is not set in environment variables.")
+        return {
+            'X-API-KEY': api_key,
             'Content-Type': 'application/json'
         }
 
@@ -24,10 +29,11 @@ class APIHandler:
     async def call_api(self, endpoint, payload):
         url = f"{self.BASE_URL}/{endpoint}"
         try:
+            headers = self._get_headers()
             # Configure timeout for the session
             timeout = aiohttp.ClientTimeout(total=Settings.API_TIMEOUT)
             async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, headers=self.headers, json=payload) as response:
+                async with session.post(url, headers=headers, json=payload) as response:
                     response.raise_for_status()  # Raises an exception for 4XX/5XX status codes
                     return {"status": 1, "data": await response.json()}
         except aiohttp.ClientResponseError as e: # Specific exception for HTTP errors
@@ -65,6 +71,11 @@ class APIHandler:
         }
         return await self.call_api("videos", payload)
 
+    async def search_api(self, query: str):
+        """Perform a Google web search via Serper and return organic results."""
+        payload = {"q": query}
+        return await self.call_api("search", payload)
+
     async def process_input(self, input_data):
         if not isinstance(input_data, dict):
             return {"status": 0, "error": "Invalid input format. Expected a dictionary."}
@@ -100,43 +111,16 @@ class APIHandler:
         return results if len(results) > 1 else next(iter(results.values()))
 
 # Usage example
-# if __name__ == "__main__":
-#     # Test cases
-#     test_cases = [
-#         {
-#             "response": {
-#                 "google_news_api": ["latest", "technology"]
-#             }
-#         },
-#         {
-#             "api_needed": 1,
-#             "response": {
-#                 "google_news_api": ["latest", "news", "Lucknow"],
-#                 "google_video_api": ["about lucknow"]
-#             }
-#         },
-#         {
-#             "response": {
-#                 "google_maps_api": ["hospitals", "Lucknow"]
-#             }
-#         },
-#         {
-#             "api_needed": 2,
-#             "response": {
-#                 "google_news_api": ["technology", "startups"],
-#                 "google_video_api": ["tech news"],
-#                 "google_maps_api": ["tech parks"]
-#             }
-#         },
-#         # Edge cases
-#         {},
-#         {"response": {}},
-#         {"response": {"unknown_api": ["test"]}},
-#         {"response": {"google_maps_api": []}},
-#     ]
-
-#     for i, test_case in enumerate(test_cases, 1):
-#         print(f"\nTest case {i}:")
-#         print("Input:", test_case)
-#         result = api_handler.process_input(test_case)
-#         print("Output:", result)
+if __name__ == "__main__":
+    handler = APIHandler()
+    input_data = {
+        "response": {
+            # "google_maps_api": ["hospitals in Lucknow"],
+            "google_news_api": ["latest news about Lucknow"],
+            # "google_video_api": ["about lucknow"]
+         },
+        "api_needed": 3
+    }
+    loop = asyncio.get_event_loop()
+    output = loop.run_until_complete(handler.process_input(input_data))
+    print(json.dumps(output, indent=2))

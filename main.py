@@ -7,7 +7,7 @@ import uvicorn
 
 from src.api.chatRouter import chat_router
 from src.api.healthRouter import health_router
-from src.api.authRouter import auth_router
+from src.api.auth.auth_routes import router as auth_router
 from src.middleware.rate_limiter import RateLimiter
 from src.config.settings import Settings
 from src.models.userModels import User
@@ -19,6 +19,7 @@ import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import Document, init_beanie
 from typing import Optional
+from src.utils.util_logger.logger import logger
 
 # import uvloop
 
@@ -26,25 +27,21 @@ from typing import Optional
 # if sys.platform != 'win32':
 #     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-logging.basicConfig(
-    level=getattr(logging, Settings.LOG_LEVEL),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-)
-logger = logging.getLogger("nawab-ai")
+
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize resources
     logger.info("Starting Nawab AI 2.0")
-    client = AsyncIOMotorClient(Settings.MONGO_DATABASE_URL)
-    await init_beanie(database=client.myDatabase, document_models=[User, OTPinDB, RefreshTokenInDB, ChatSession])
+    # client = AsyncIOMotorClient(Settings.MONGO_DATABASE_URL)
+    # await init_beanie(database=client.myDatabase, document_models=[User, OTPinDB, RefreshTokenInDB, ChatSession])
     logger.info("Connected to MongoDB")
     # Add any startup code here (database connections, etc.)
     yield
     # Shutdown: Clean up resources
     logger.info("Shutting down Nawab AI 2.0")
-    client.close()
+    # client.close()
     
 rate_limiter = RateLimiter()
     
@@ -60,59 +57,59 @@ app = FastAPI(
 )
 
 
-# CORS Configuration - Only allow specific frontend origin
+# CORS Configuration
+# NOTE: allow_origins=["*"] + allow_credentials=True is rejected by browsers.
+# Always list explicit origins when credentials (cookies) are involved.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://nawabaifrontend-506068601490.us-central1.run.app"
-    ],
-    allow_credentials=True,
-    allow_methods=["POST", "GET"],  # POST for API calls, GET for health checks
-    allow_headers=["*"],
+    allow_origins=Settings.FRONTEND_ORIGINS,  # set FRONTEND_ORIGINS in .env
+    allow_credentials=True,                   # required for HttpOnly cookie to be sent
+    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
-@app.middleware("http")
-async def strict_origin_validation(request: Request, call_next):
-    """Strict validation - only allow requests from authorized frontend"""
+# @app.middleware("http")
+# async def strict_origin_validation(request: Request, call_next):
+#     """Strict validation - only allow requests from authorized frontend"""
     
-    # Allowed frontend origin
-    allowed_origin = "https://nawabaifrontend-506068601490.us-central1.run.app"
+#     # Allowed frontend origin
+#     allowed_origin = "https://nawabaifrontend-506068601490.us-central1.run.app"
     
-    # Paths that are exempt from origin checking (for Cloud Run health checks)
-    exempt_paths = {"/", "/_ah/health"}
+#     # Paths that are exempt from origin checking (for Cloud Run health checks)
+#     exempt_paths = {"/", "/_ah/health"}
     
-    # Check if this is an exempt path (health checks)
-    if request.url.path in exempt_paths:
-        response = await call_next(request)
-        return response
+#     # Check if this is an exempt path (health checks)
+#     if request.url.path in exempt_paths:
+#         response = await call_next(request)
+#         return response
     
-    # Get the origin or referer from request headers
-    origin = request.headers.get("origin")
-    referer = request.headers.get("referer")
+#     # Get the origin or referer from request headers
+#     origin = request.headers.get("origin")
+#     referer = request.headers.get("referer")
     
-    # Validate origin
-    is_valid_origin = False
+#     # Validate origin
+#     is_valid_origin = False
     
-    if origin and origin == allowed_origin:
-        is_valid_origin = True
-    elif referer and referer.startswith(allowed_origin):
-        is_valid_origin = True
+#     if origin and origin == allowed_origin:
+#         is_valid_origin = True
+#     elif referer and referer.startswith(allowed_origin):
+#         is_valid_origin = True
     
-    # Block if not from allowed origin
-    if not is_valid_origin:
-        logger.warning(
-            f"Blocked unauthorized access from origin: {origin or 'None'}, "
-            f"referer: {referer or 'None'}, IP: {request.client.host}"
-        )
-        return Response(
-            content="Access denied. Requests must originate from authorized frontend application.",
-            status_code=403
-        )
+#     # Block if not from allowed origin
+#     if not is_valid_origin:
+#         logger.warning(
+#             f"Blocked unauthorized access from origin: {origin or 'None'}, "
+#             f"referer: {referer or 'None'}, IP: {request.client.host}"
+#         )
+#         return Response(
+#             content="Access denied. Requests must originate from authorized frontend application.",
+#             status_code=403
+#         )
     
-    # If valid, continue processing
-    response = await call_next(request)
-    return response
+#     # If valid, continue processing
+#     response = await call_next(request)
+#     return response
 
 
 @app.middleware("http")
@@ -146,7 +143,7 @@ async def add_process_time_header(request: Request, call_next):
 # Include routers
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
-# app.include_router(auth_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":

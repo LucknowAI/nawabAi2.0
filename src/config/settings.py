@@ -18,7 +18,7 @@ class Settings:
     BAN_THRESHOLD = int(os.getenv('BAN_THRESHOLD', 5))  # violations before ban
     BAN_DURATION = int(os.getenv('BAN_DURATION', 3600))  # ban duration in seconds
 
-# JWT Settings
+    # JWT Settings
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES', 30))
     REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv('REFRESH_TOKEN_EXPIRE_DAYS', 30))
 
@@ -49,6 +49,20 @@ class Settings:
     # Location Settings
     VERTEX_PROJECT_LOCATION = os.getenv('VERTEX_PROJECT_LOCATION', 'asia-south1')
     VERTEX_PROJECT_ID = os.getenv('VERTEX_PROJECT_ID', 'upai-projects')
+
+    # Google OAuth Settings
+    GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID')
+
+    # PostgreSQL (async)
+    POSTGRES_DB_URL = os.getenv('POSTGRES_DB_URL')  # postgresql+asyncpg://user:pass@host/db
+
+    # CORS — comma-separated list of allowed frontend origins
+    # e.g. "http://localhost:3000,https://yourapp.com"
+    FRONTEND_ORIGINS: list[str] = [
+        o.strip()
+        for o in os.getenv('FRONTEND_ORIGINS', 'http://localhost:3000').split(',')
+        if o.strip()
+    ]
 
 
 settings = Settings()
