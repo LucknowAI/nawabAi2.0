@@ -32,5 +32,7 @@ RUN mkdir -p query_logs && chmod 777 query_logs
 # Expose port 8080
 EXPOSE 8080
 
-# Start with Gunicorn using Uvicorn workers and auto-scaled worker count
-CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker -w 1 -b 0.0.0.0:$PORT"]
+# Run DB migrations then start Gunicorn with 2 Uvicorn workers.
+# --timeout 120 accommodates long-running AG-UI streaming responses.
+# --graceful-timeout 30 lets in-flight requests finish before shutdown.
+CMD ["sh", "-c", "alembic upgrade head && gunicorn main:app -k uvicorn.workers.UvicornWorker -w 2 --timeout 120 --graceful-timeout 30 -b 0.0.0.0:$PORT"]

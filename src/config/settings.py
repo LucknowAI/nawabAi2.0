@@ -58,6 +58,14 @@ class Settings:
     # PostgreSQL (async)
     POSTGRES_DB_URL = os.getenv('POSTGRES_DB_URL')  # postgresql+asyncpg://user:pass@host/db
 
+    # City / multi-persona
+    DEFAULT_CITY_ID: str = os.getenv('DEFAULT_CITY_ID', 'lucknow')
+
+    # Redis (for distributed rate limiting and caching)
+    REDIS_URL: str = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    SESSION_TIMEOUT: int = int(os.getenv('SESSION_TIMEOUT', 3600))
+    MAX_CONTEXT_MESSAGES: int = int(os.getenv('MAX_CONTEXT_MESSAGES', 20))
+
     # CORS — comma-separated list of allowed frontend origins
     # e.g. "http://localhost:3000,https://yourapp.com"
     FRONTEND_ORIGINS: list[str] = [

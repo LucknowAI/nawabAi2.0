@@ -54,6 +54,9 @@ class UserModel(Base):
 
     last_login   = column(DateTime(timezone=True), nullable=True)
 
+    # City preference — used as fallback when no city_id is in the AG-UI state
+    default_city_id = column(String(50), nullable=False, default="lucknow")
+
     # -----------------------------------------------------------------------
     # Relationships
     # -----------------------------------------------------------------------

@@ -1,0 +1,17 @@
+autodetect: true
+createTime: '2026-01-29T11:23:11.384204197Z'
+description: Build and deploy to Cloud Run service nawab-ai on push to "^main$"
+github:
+  name: nawabAi2.0
+  owner: LucknowAI
+  push:
+    branch: ^main$
+id: c201c112-f99d-49f2-8eb4-daf1b0868972
+name: rmgpgab-nawab-ai-asia-south1-LucknowAI-nawabAi2-0--mayvu
+resourceName: projects/upai-projects/locations/global/triggers/c201c112-f99d-49f2-8eb4-daf1b0868972
+serviceAccount: projects/upai-projects/serviceAccounts/upai-projects@appspot.gserviceaccount.com
+logging: CLOUD_LOGGING_ONLY
+tags:
+- gcp-cloud-build-deploy-cloud-run
+- gcp-cloud-build-deploy-cloud-run-managed
+- nawab-ai

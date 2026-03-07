@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from src.auth.jwt_utils import create_access_token, get_current_user
+from src.cities.registry import CITY_REGISTRY
 from src.config.settings import settings
 from src.database.db import get_db
 from sqlalchemy_models.user import UserModel
@@ -35,12 +36,17 @@ class GoogleUserInfo(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    access_token : str
-    token_type   : str = "bearer"
-    user_id      : int
-    email        : str
-    full_name    : str | None
-    picture      : str | None
+    access_token    : str
+    token_type      : str = "bearer"
+    user_id         : int
+    email           : str
+    full_name       : str | None
+    picture         : str | None
+    default_city_id : str = "lucknow"
+
+
+class ProfileUpdateRequest(BaseModel):
+    default_city_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -152,11 +158,12 @@ async def google_login(body: GoogleLoginRequest, response: Response):
     )
 
     return AuthResponse(
-        access_token = access_token,
-        user_id      = user.id,
-        email        = user.email,
-        full_name    = user.full_name,
-        picture      = user.picture,
+        access_token    = access_token,
+        user_id         = user.id,
+        email           = user.email,
+        full_name       = user.full_name,
+        picture         = user.picture,
+        default_city_id = user.default_city_id or "lucknow",
     )
 
 
@@ -197,9 +204,45 @@ async def me(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="User not found")
 
     return AuthResponse(
-        access_token = "",   # not re-issued on /me
-        user_id      = user.id,
-        email        = user.email,
-        full_name    = user.full_name,
-        picture      = user.picture,
+        access_token    = "",   # not re-issued on /me
+        user_id         = user.id,
+        email           = user.email,
+        full_name       = user.full_name,
+        picture         = user.picture,
+        default_city_id = user.default_city_id or "lucknow",
     )
+
+
+# ---------------------------------------------------------------------------
+# Profile update (city preference)
+# ---------------------------------------------------------------------------
+
+@router.patch("/profile")
+async def update_profile(
+    body: ProfileUpdateRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Update the authenticated user's profile settings.
+
+    Currently supports updating ``default_city_id``.
+    """
+    if body.default_city_id not in CITY_REGISTRY:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown city: {body.default_city_id!r}. Valid values: {list(CITY_REGISTRY)}",
+        )
+
+    async with get_db() as db:
+        result = await db.execute(
+            select(UserModel).where(UserModel.id == int(current_user["sub"]))
+        )
+        user: UserModel | None = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user.default_city_id = body.default_city_id
+        await db.flush()
+        await db.refresh(user)
+
+    return {"default_city_id": user.default_city_id}

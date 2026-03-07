@@ -47,27 +47,27 @@ class APIHandler:
             # It's good to log this e comprehensively
             return {"status": 0, "error": "An unexpected error occurred during the API call.", "details": str(e)}
 
-    async def maps_api(self, keywords):
+    async def maps_api(self, keywords, coordinates: str = "@26.8488213,80.8601114,12z"):
         payload = {
             "q": " ".join(keywords),
-            "ll": "@26.8488213,80.8601114,12z"  # Default to Lucknow coordinates
+            "ll": coordinates,
         }
         return await self.call_api("maps", payload)
 
-    async def news_api(self, keywords):
+    async def news_api(self, keywords, location: str = "Lucknow, Uttar Pradesh, India"):
         payload = {
             "q": " ".join(keywords),
-            "location": "Lucknow, Uttar Pradesh, India",
+            "location": location,
             "gl": "in",
-            "tbs": "qdr:w"
+            "tbs": "qdr:w",
         }
         return await self.call_api("news", payload)
 
-    async def video_api(self, keywords):
+    async def video_api(self, keywords, location: str = "Lucknow, Uttar Pradesh, India"):
         payload = {
             "q": " ".join(keywords),
-            "location": "Lucknow, Uttar Pradesh, India",
-            "gl": "in"
+            "location": location,
+            "gl": "in",
         }
         return await self.call_api("videos", payload)
 

@@ -1,147 +1,91 @@
+import time
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import time 
-import logging
-import uvicorn
 
 from src.api.chatRouter import chat_router
+from src.api.cityRouter import city_router
 from src.api.healthRouter import health_router
 from src.api.auth.auth_routes import router as auth_router
 from src.middleware.rate_limiter import RateLimiter
 from src.config.settings import Settings
-from src.models.userModels import User
-from src.models.authModels import OTPinDB, RefreshTokenInDB
-from src.models.chatModels import ChatSession
-
-
-import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
-from beanie import Document, init_beanie
-from typing import Optional
 from src.utils.util_logger.logger import logger
-
-# import uvloop
-
-# # Use uvloop for better async performance on Linux
-# if sys.platform != 'win32':
-#     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
-
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize resources
     logger.info("Starting Nawab AI 2.0")
-    # client = AsyncIOMotorClient(Settings.MONGO_DATABASE_URL)
-    # await init_beanie(database=client.myDatabase, document_models=[User, OTPinDB, RefreshTokenInDB, ChatSession])
-    logger.info("Connected to MongoDB")
-    # Add any startup code here (database connections, etc.)
+
+    # Connect to Redis (graceful — won't abort startup if Redis is unavailable)
+    try:
+        from src.database.redis import redis_manager
+        await redis_manager.connect()
+    except Exception as exc:
+        logger.warning("Redis unavailable at startup — rate limiting falls back to in-memory", extra={"error": str(exc)})
+
     yield
-    # Shutdown: Clean up resources
+
     logger.info("Shutting down Nawab AI 2.0")
-    # client.close()
-    
+    try:
+        from src.database.redis import redis_manager
+        await redis_manager.disconnect()
+    except Exception:
+        pass
+
+
 rate_limiter = RateLimiter()
-    
 
 app = FastAPI(
     title="Nawab Chat API",
-    description="AI assistant specialized in Lucknow-related information",
+    description="AI assistant for Indian cities — Lucknow, Delhi, and more",
     version="2.0.0",
     lifespan=lifespan,
     docs_url="/docs" if Settings.ENVIRONMENT == "development" else None,
     redoc_url="/redoc" if Settings.ENVIRONMENT == "development" else None,
-    openapi_url="/openapi.json" if Settings.ENVIRONMENT == "development" else None
+    openapi_url="/openapi.json" if Settings.ENVIRONMENT == "development" else None,
 )
 
-
-# CORS Configuration
-# NOTE: allow_origins=["*"] + allow_credentials=True is rejected by browsers.
-# Always list explicit origins when credentials (cookies) are involved.
+# CORS — allow_origins=["*"] + allow_credentials=True is rejected by browsers.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=Settings.FRONTEND_ORIGINS,  # set FRONTEND_ORIGINS in .env
-    allow_credentials=True,                   # required for HttpOnly cookie to be sent
-    allow_methods=["POST", "GET", "OPTIONS"],
+    allow_origins=Settings.FRONTEND_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["POST", "GET", "OPTIONS", "PATCH"],
     allow_headers=["Content-Type", "Authorization"],
 )
-
-
-# @app.middleware("http")
-# async def strict_origin_validation(request: Request, call_next):
-#     """Strict validation - only allow requests from authorized frontend"""
-    
-#     # Allowed frontend origin
-#     allowed_origin = "https://nawabaifrontend-506068601490.us-central1.run.app"
-    
-#     # Paths that are exempt from origin checking (for Cloud Run health checks)
-#     exempt_paths = {"/", "/_ah/health"}
-    
-#     # Check if this is an exempt path (health checks)
-#     if request.url.path in exempt_paths:
-#         response = await call_next(request)
-#         return response
-    
-#     # Get the origin or referer from request headers
-#     origin = request.headers.get("origin")
-#     referer = request.headers.get("referer")
-    
-#     # Validate origin
-#     is_valid_origin = False
-    
-#     if origin and origin == allowed_origin:
-#         is_valid_origin = True
-#     elif referer and referer.startswith(allowed_origin):
-#         is_valid_origin = True
-    
-#     # Block if not from allowed origin
-#     if not is_valid_origin:
-#         logger.warning(
-#             f"Blocked unauthorized access from origin: {origin or 'None'}, "
-#             f"referer: {referer or 'None'}, IP: {request.client.host}"
-#         )
-#         return Response(
-#             content="Access denied. Requests must originate from authorized frontend application.",
-#             status_code=403
-#         )
-    
-#     # If valid, continue processing
-#     response = await call_next(request)
-#     return response
 
 
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start_time = time.time()
-    
-    # Apply rate limiting
+
     try:
         await rate_limiter.check_rate_limit(request)
     except Exception as e:
-        return Response(
-            content=str(e),
-            status_code=429
-        )
-    
-    # Track concurrent requests
+        return Response(content=str(e), status_code=429)
+
     await rate_limiter.acquire_worker()
-    
+
     try:
         response = await call_next(request)
         process_time = time.time() - start_time
         response.headers["X-Process-Time"] = str(process_time)
-        logger.info(f"Request processed in {process_time:.4f} seconds: {request.url.path}")
+        logger.info(
+            "Request completed",
+            extra={"path": request.url.path, "duration_ms": round(process_time * 1000, 1)},
+        )
         return response
     except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
+        logger.error("Unhandled request error", extra={"error": str(e)})
         raise
     finally:
         rate_limiter.release_worker()
 
-# Include routers
+
+# Routers
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(city_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 

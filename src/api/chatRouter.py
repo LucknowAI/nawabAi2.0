@@ -4,43 +4,29 @@ import pathlib
 from http import HTTPStatus
 import traceback
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.requests import Request
 from fastapi.responses import Response, StreamingResponse
-from pydantic import BaseModel, Field, ValidationError
-from typing import Optional, Union, Dict, Any
-from fastapi import Depends, HTTPException, status
-from src.processors.queryProcessor import QueryProcessor
+from pydantic import ValidationError
+
 from src.auth.jwt_utils import get_current_user_id
+from src.config.settings import settings
+from agent.main_agent import get_agent
 
 from pydantic_ai.ui import SSE_CONTENT_TYPE, StateDeps
 from pydantic_ai.ui.ag_ui import AGUIAdapter
 from ag_ui.core.events import (
     TextMessageContentEvent,
     TextMessageChunkEvent,
-    TextMessageStartEvent,
-    TextMessageEndEvent,
-    ToolCallStartEvent,
-    ToolCallArgsEvent,
-    ToolCallEndEvent,
-    ToolCallResultEvent,
-    RunStartedEvent,
     RunFinishedEvent,
-    StepStartedEvent,
-    StepFinishedEvent,
-    StateSnapshotEvent,
-    StateDeltaEvent,
-    MessagesSnapshotEvent,
 )
-from agent.main_agent import nawab_agent
-# from src.tools.Whsiper import whisper_service
 from datetime import datetime, timezone
 import uuid
-from sqlalchemy import select
-from sqlalchemy import func as sqlfunc
+from sqlalchemy import select, func as sqlfunc
 from src.utils.util_logger.logger import logger
-from src.database.db import get_db, AsyncSessionFactory
+from src.database.db import AsyncSessionFactory
 from sqlalchemy_models.chat import ConversationModel, ChatMessageModel, AgUiEventModel
+from sqlalchemy_models.user import UserModel
 
 # Directory where raw event captures are written
 _EVENT_LOG_DIR = pathlib.Path("query_logs")
@@ -198,32 +184,6 @@ def _serialise_event(event) -> dict:
     # plain dataclass / namedtuple / dict fallback
     return vars(event) if hasattr(event, "__dict__") else str(event)
 
-processor = QueryProcessor()
-
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=1000, description="The message to be processed.")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "message": "Hello, how are you?"
-            }
-        }
-
-class SpeechToTextRequest(BaseModel):
-    transcribed_text: str
-    user_id: Optional[str] = None
-    auto_process: bool = Field(False, description="Whether to automatically process the transcribed text")
-
-class SpeechToTextResponse(BaseModel):
-    transcribed_text: str
-    status: str = "success"
-    chat_response: Optional[Dict[str, Any]] = None
-    
-class ChatResponse(BaseModel):
-    response: Dict[str, Any]
-    status: str = "success"
-       
 chat_router = APIRouter(
     prefix="/chat",
     tags=["Chat"],
@@ -340,81 +300,6 @@ async def replay_mock_conversation(
     )
 
 
-@chat_router.post("/", response_model=ChatResponse)
-async def chat_endpoint(
-    request: ChatRequest,
-    user_id: int = Depends(get_current_user_id),
-    processor: QueryProcessor = Depends(lambda: QueryProcessor()),
-):
-    """
-    Process chat requests and return responses.
-    
-    Args:
-        query (str): The query parameter from the URL
-        request (ChatRequest): The request body containing the message
-        processor (QueryProcessor): Query processor dependency
-    
-    Returns:
-        ChatResponse: The processed response
-        
-    Raises:
-        HTTPException: If the request is invalid or processing fails
-    """
-    
-    # Simulate processing the request
-    try: 
-        if not request.message:
-            raise HTTPException(
-                status_code = status.HTTP_400_BAD_REQUEST,
-                detail="Query and Message cannot be empty."
-            )
-            
-        response = await processor.process_query(request.message)
-        
-        # Ensure response is a dictionary
-        if isinstance(response, str):
-            response = {"llm_response": response}
-        
-        # Save chat history via SQLAlchemy
-        try:
-            async with get_db() as db:
-                conversation = ConversationModel(
-                    user_id=user_id,
-                    session_id=str(uuid.uuid4()),
-                    status="active",
-                    message_count=2,
-                )
-                db.add(conversation)
-                await db.flush()  # populate conversation.id
-
-                db.add(ChatMessageModel(
-                    message_id=str(uuid.uuid4()),
-                    conversation_id=conversation.id,
-                    role="user",
-                    content=request.message,
-                ))
-                db.add(ChatMessageModel(
-                    message_id=str(uuid.uuid4()),
-                    conversation_id=conversation.id,
-                    role="assistant",
-                    content=response.get("llm_response", str(response)),
-                ))
-                # commit happens automatically on __aexit__
-
-        except Exception as db_error:
-            # Log the error but don't fail the request
-            logger.error(f"Failed to save chat to database: {db_error}")
-            
-        return ChatResponse(
-            response=response,
-            status="success"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An error occurred while processing the request: {str(e)}"
-        )
-
 @chat_router.post("/nawab")
 async def nawab_agent_endpoint(
     request: Request,
@@ -450,8 +335,31 @@ async def nawab_agent_endpoint(
     # thread_id is sent by CopilotKit on every request for the same chat thread
     thread_id: str = (getattr(run_input, "thread_id", None) or str(uuid.uuid4()))
 
-    adapter = AGUIAdapter(agent=nawab_agent, run_input=run_input, accept=accept)
-    event_stream = adapter.run_stream(deps=StateDeps(state={}))
+    # ── Resolve city_id ───────────────────────────────────────────────────────
+    # Priority: AG-UI state > user default > app default
+    state_dict: dict = dict(getattr(run_input, "state", {}) or {})
+    city_id: str = state_dict.get("city_id", "")
+
+    if not city_id:
+        try:
+            async with AsyncSessionFactory() as _db:
+                _user_result = await _db.execute(
+                    select(UserModel).where(UserModel.id == user_id)
+                )
+                _user = _user_result.scalar_one_or_none()
+                if _user and _user.default_city_id:
+                    city_id = _user.default_city_id
+        except Exception as _e:
+            logger.warning(f"[AG-UI] Could not fetch user default_city_id: {_e}")
+
+    city_id = city_id or settings.DEFAULT_CITY_ID
+
+    # Merge resolved city_id back into deps state for tool access
+    state_dict["city_id"] = city_id
+
+    agent = get_agent(city_id)
+    adapter = AGUIAdapter(agent=agent, run_input=run_input, accept=accept)
+    event_stream = adapter.run_stream(deps=StateDeps(state=state_dict))
 
     async def capture_and_stream():
         """
@@ -492,6 +400,7 @@ async def nawab_agent_endpoint(
                         session_id=thread_id,
                         status="active",
                         message_count=0,
+                        city_id=city_id,
                     )
                     setup_db.add(conv)
                     await setup_db.flush()
@@ -661,6 +570,7 @@ async def list_conversations(
         {
             "thread_id":     c.session_id,
             "title":         c.title,
+            "city_id":       c.city_id,
             "status":        c.status,
             "message_count": c.message_count,
             "created_at":    c.created_at.isoformat() if c.created_at else None,
@@ -761,44 +671,3 @@ async def get_conversation_messages(
         for m in msgs
     ]
 
-
-# @chat_router.post("/speech-to-text", response_model=SpeechToTextResponse)
-# async def speech_to_text_endpoint(
-#     audio_file: UploadFile = File(..., description="Audio file to transcribe"),
-#     language: Optional[str] = Form(None, description="Language code (e.g., 'en', 'hi')"),
-#     processor: QueryProcessor = Depends(lambda: QueryProcessor()),
-# ):
-
-#     try:
-#         # Transcribe audio to text
-#         transcribed_text = await whisper_service.transcribe_audio(
-#             audio_file=audio_file,
-#             language=language
-#         )
-        
-#         if not transcribed_text:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail="Could not transcribe audio. Please ensure the audio is clear and try again."
-#             )
-        
-#         # Process the transcribed text to get chat response
-#         chat_response = await processor.process_query(transcribed_text)
-#         if isinstance(chat_response, str):
-#             chat_response = {"llm_response": chat_response}
-
-#         # Return SpeechToTextResponse instead of ChatResponse
-#         return SpeechToTextResponse(
-#             transcribed_text=transcribed_text,
-#             status="success",
-#             chat_response=chat_response
-#         )
-        
-#     except HTTPException:
-#         # Re-raise HTTP exceptions (validation errors, etc.)
-#         raise
-#     except Exception as e:
-#         raise HTTPException(
-#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             detail=f"An error occurred during speech-to-text conversion: {str(e)}"
-#         )

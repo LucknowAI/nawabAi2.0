@@ -61,6 +61,9 @@ class ConversationModel(Base):
     message_count = column(Integer, nullable=False, default=0)
     completed_at = column(DateTime(timezone=True), nullable=True)
 
+    # city this conversation is associated with (set from AG-UI state or user default)
+    city_id = column(String(50), nullable=False, default="lucknow", index=True)
+
     # arbitrary extra data (e.g. language, topic, model name)
     extra_metadata = column(JSONB, nullable=True, default=dict)
 
