@@ -71,6 +71,14 @@ class APIHandler:
         }
         return await self.call_api("videos", payload)
 
+    async def images_api(self, keywords: list[str], location: str = "India"):
+        payload = {
+            "q": " ".join(keywords),
+            "location": location,
+            "gl": "in",
+        }
+        return await self.call_api("images", payload)
+
     async def search_api(self, query: str):
         """Perform a Google web search via Serper and return organic results."""
         payload = {"q": query}

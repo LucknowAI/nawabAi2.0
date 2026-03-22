@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from src.auth.jwt_utils import get_current_user_id
 from src.config.settings import settings
-from agent.main_agent import get_agent
+from agent.main_agent import get_agent, NawabState
 
 from pydantic_ai.ui import SSE_CONTENT_TYPE, StateDeps
 from pydantic_ai.ui.ag_ui import AGUIAdapter
@@ -183,6 +183,19 @@ def _serialise_event(event) -> dict:
         pass
     # plain dataclass / namedtuple / dict fallback
     return vars(event) if hasattr(event, "__dict__") else str(event)
+
+
+def _conv_to_dict(c: ConversationModel) -> dict:
+    return {
+        "thread_id":     c.session_id,
+        "title":         c.title,
+        "city_id":       c.city_id,
+        "status":        c.status,
+        "message_count": c.message_count,
+        "created_at":    c.created_at.isoformat() if c.created_at else None,
+        "updated_at":    c.updated_at.isoformat() if c.updated_at else None,
+    }
+
 
 chat_router = APIRouter(
     prefix="/chat",
@@ -359,7 +372,16 @@ async def nawab_agent_endpoint(
 
     agent = get_agent(city_id)
     adapter = AGUIAdapter(agent=agent, run_input=run_input, accept=accept)
-    event_stream = adapter.run_stream(deps=StateDeps(state=state_dict))
+
+    # Build a typed NawabState from the resolved city_id plus any extra fields
+    # the frontend may have sent (e.g. user_preferences updated by the UI).
+    nawab_state = NawabState(
+        city_id=city_id,
+        active_search=state_dict.get("activeSearch", state_dict.get("active_search", {})),
+        user_preferences=state_dict.get("userPreferences", state_dict.get("user_preferences", {})),
+    )
+
+    event_stream = adapter.run_stream(deps=StateDeps(state=nawab_state))
 
     async def capture_and_stream():
         """
@@ -525,7 +547,23 @@ async def nawab_agent_endpoint(
                                     (conv_row.message_count or 0) + 2
                                 )
 
+                            # Set title from first user message if not yet set
+                            if conv_row and not conv_row.title and user_text:
+                                raw = user_text.strip()
+                                if len(raw) > 40:
+                                    raw = raw[:40].rsplit(' ', 1)[0] + "…"
+                                conv_row.title = raw
+
                             await bulk_db.commit()
+
+                        # Invalidate conversation list cache so sidebar refreshes
+                        try:
+                            from src.database.redis import redis_manager
+                            if redis_manager.is_connected and redis_manager.redis_client:
+                                inv_key = f"{settings.CACHE_PREFIX}convlist:{user_id}:p1"
+                                await redis_manager.redis_client.delete(inv_key)
+                        except Exception:
+                            pass  # cache invalidation failure is non-critical
 
                         logger.info(
                             f"Bulk-saved {len(event_dicts)} events + 2 messages "
@@ -546,38 +584,91 @@ async def nawab_agent_endpoint(
 @chat_router.get("/conversations", summary="List user conversations")
 async def list_conversations(
     user_id: int = Depends(get_current_user_id),
-    limit: int = 50,
-    offset: int = 0,
+    page: int = 1,
+    limit: int = 10,
 ):
     """
-    Returns all conversations belonging to the authenticated user, newest first.
-
-    Each entry includes the ``thread_id`` (== ``session_id``), title, status,
-    message count, and timestamps.  Pass ``thread_id`` to
-    ``GET /chat/conversations/{thread_id}/events`` to replay a conversation.
+    Returns paginated conversations for the authenticated user, newest first.
+    Results are cached in Redis for 5 minutes.
     """
+    from src.database.redis import redis_manager
+    cache_key = f"{settings.CACHE_PREFIX}convlist:{user_id}:p{page}"
+
+    # 1. Try Redis cache first
+    if redis_manager.is_connected and redis_manager.redis_client:
+        try:
+            cached = await redis_manager.redis_client.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception as cache_err:
+            logger.warning(f"Redis conv list read failed: {cache_err}")
+
+    # 2. Query DB with pagination
+    offset = (page - 1) * limit
     async with AsyncSessionFactory() as db:
         result = await db.execute(
             select(ConversationModel)
             .where(ConversationModel.user_id == user_id)
+            .where(ConversationModel.status != "archived")
             .order_by(ConversationModel.id.desc())
-            .limit(limit)
             .offset(offset)
+            .limit(limit + 1)  # fetch one extra to detect has_more
         )
         convs = result.scalars().all()
 
-    return [
-        {
-            "thread_id":     c.session_id,
-            "title":         c.title,
-            "city_id":       c.city_id,
-            "status":        c.status,
-            "message_count": c.message_count,
-            "created_at":    c.created_at.isoformat() if c.created_at else None,
-            "updated_at":    c.updated_at.isoformat() if c.updated_at else None,
-        }
-        for c in convs
-    ]
+    has_more = len(convs) > limit
+    convs = list(convs[:limit])
+
+    data = {
+        "conversations": [_conv_to_dict(c) for c in convs],
+        "has_more": has_more,
+        "page": page,
+    }
+
+    # 3. Cache in Redis
+    if redis_manager.is_connected and redis_manager.redis_client:
+        try:
+            await redis_manager.redis_client.set(
+                cache_key, json.dumps(data, default=str), ex=300
+            )
+        except Exception as cache_err:
+            logger.warning(f"Redis conv list write failed: {cache_err}")
+
+    return data
+
+
+@chat_router.delete("/conversations/{thread_id}", summary="Soft-delete a conversation")
+async def delete_conversation(
+    thread_id: str,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Soft-deletes a conversation by setting its status to 'archived'."""
+    async with AsyncSessionFactory() as db:
+        conv_result = await db.execute(
+            select(ConversationModel)
+            .where(ConversationModel.session_id == thread_id)
+            .where(ConversationModel.user_id == user_id)
+        )
+        conv = conv_result.scalar_one_or_none()
+        if conv is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Conversation {thread_id!r} not found.",
+            )
+        conv.status = "archived"
+        await db.commit()
+
+    # Invalidate Redis cache
+    try:
+        from src.database.redis import redis_manager
+        if redis_manager.is_connected and redis_manager.redis_client:
+            await redis_manager.redis_client.delete(
+                f"{settings.CACHE_PREFIX}convlist:{user_id}:p1"
+            )
+    except Exception:
+        pass
+
+    return {"ok": True}
 
 
 @chat_router.get(

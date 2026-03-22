@@ -1,8 +1,13 @@
 from datetime import datetime, timezone
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Response
 from google.oauth2 import id_token
 from google.auth.transport import requests as g_requests
+
+# Module-level transport — reused across all sign-in calls so google-auth
+# can cache Google's JWKS public keys on the underlying requests.Session.
+_google_transport = g_requests.Request()
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -53,14 +58,22 @@ class ProfileUpdateRequest(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _parse_google_token(raw_token: str) -> GoogleUserInfo:
-    """Verify the Google ID-token and return normalised user info."""
-    try:
-        payload = id_token.verify_oauth2_token(
+async def _parse_google_token(raw_token: str) -> GoogleUserInfo:
+    """Verify the Google ID-token and return normalised user info.
+
+    Runs the blocking google-auth call (which makes a synchronous HTTP
+    request to Google's public-key endpoint) in a worker thread so it
+    never blocks the asyncio event loop (FastAPI Tip #2).
+    """
+    def _verify() -> dict:
+        return id_token.verify_oauth2_token(
             raw_token,
-            g_requests.Request(),
+            _google_transport,
             settings.GOOGLE_CLIENT_ID,
         )
+
+    try:
+        payload = await anyio.to_thread.run_sync(_verify)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid Google token: {exc}")
 
@@ -133,8 +146,8 @@ async def google_login(body: GoogleLoginRequest, response: Response):
     2. Get-or-create the user row in PostgreSQL.
     3. Issue a signed JWT and set it as an HttpOnly cookie.
     """
-    # 1. Verify Google token
-    google_info = _parse_google_token(body.id_token)
+    # 1. Verify Google token (async — runs in thread to avoid blocking the event loop)
+    google_info = await _parse_google_token(body.id_token)
 
     # 2. Upsert user in DB
     user = await _get_or_create_user(google_info)

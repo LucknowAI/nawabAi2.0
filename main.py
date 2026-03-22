@@ -1,8 +1,10 @@
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src.api.chatRouter import chat_router
 from src.api.cityRouter import city_router
@@ -36,6 +38,71 @@ async def lifespan(app: FastAPI):
 
 rate_limiter = RateLimiter()
 
+
+class _RateLimitAndTimingMiddleware:
+    """Pure ASGI middleware for rate-limiting and request timing.
+
+    Using a Pure ASGI middleware instead of BaseHTTPMiddleware (which is what
+    @app.middleware("http") creates) avoids response-body buffering.
+    BaseHTTPMiddleware buffers the entire response before forwarding it, which
+    breaks streaming endpoints like the SSE chat route (FastAPI Tip #8).
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
+        start_time = time.time()
+
+        # ── Rate limit check ──────────────────────────────────────────────────
+        try:
+            await rate_limiter.check_rate_limit(request)
+        except HTTPException as exc:
+            resp = Response(content=exc.detail, status_code=exc.status_code)
+            await resp(scope, receive, send)
+            return
+        except Exception as exc:
+            resp = Response(content=str(exc), status_code=429)
+            await resp(scope, receive, send)
+            return
+
+        # ── Worker semaphore ──────────────────────────────────────────────────
+        try:
+            await rate_limiter.acquire_worker()
+        except HTTPException as exc:
+            resp = Response(content=exc.detail, status_code=exc.status_code)
+            await resp(scope, receive, send)
+            return
+
+        # ── Wrap send to inject X-Process-Time header ─────────────────────────
+        async def _send_with_timing(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                process_time = time.time() - start_time
+                headers = MutableHeaders(scope=message)
+                headers.append("X-Process-Time", str(process_time))
+                logger.info(
+                    "Request completed",
+                    extra={
+                        "path": scope.get("path", ""),
+                        "duration_ms": round(process_time * 1000, 1),
+                    },
+                )
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send_with_timing)
+        except Exception as exc:
+            logger.error("Unhandled request error", extra={"error": str(exc)})
+            raise
+        finally:
+            rate_limiter.release_worker()
+
+
 app = FastAPI(
     title="Nawab Chat API",
     description="AI assistant for Indian cities — Lucknow, Delhi, and more",
@@ -46,41 +113,15 @@ app = FastAPI(
     openapi_url="/openapi.json" if Settings.ENVIRONMENT == "development" else None,
 )
 
-# CORS — allow_origins=["*"] + allow_credentials=True is rejected by browsers.
-app.add_middleware(
-    CORSMiddleware,
+# Middleware is applied last-added = outermost.
+# Order: _RateLimitAndTimingMiddleware (outermost) → CORSMiddleware → app
+app.add_middleware(CORSMiddleware,
     allow_origins=Settings.FRONTEND_ORIGINS,
     allow_credentials=True,
     allow_methods=["POST", "GET", "OPTIONS", "PATCH"],
     allow_headers=["Content-Type", "Authorization"],
 )
-
-
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    start_time = time.time()
-
-    try:
-        await rate_limiter.check_rate_limit(request)
-    except Exception as e:
-        return Response(content=str(e), status_code=429)
-
-    await rate_limiter.acquire_worker()
-
-    try:
-        response = await call_next(request)
-        process_time = time.time() - start_time
-        response.headers["X-Process-Time"] = str(process_time)
-        logger.info(
-            "Request completed",
-            extra={"path": request.url.path, "duration_ms": round(process_time * 1000, 1)},
-        )
-        return response
-    except Exception as e:
-        logger.error("Unhandled request error", extra={"error": str(e)})
-        raise
-    finally:
-        rate_limiter.release_worker()
+app.add_middleware(_RateLimitAndTimingMiddleware)
 
 
 # Routers
